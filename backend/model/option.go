@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"one-mcp/backend/common"
+	"os"
 	"strconv"
 
 	"github.com/burugo/thing"
@@ -57,6 +58,11 @@ func InitOptionMap() error {
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
 	common.OptionMap["EnableGzip"] = strconv.FormatBool(*common.EnableGzip)
 	common.OptionMap[common.OptionStdioServiceStartupStrategy] = common.StrategyStartOnBoot
+
+	// Load MCP tool call timeout from environment variable if set
+	if mcpTimeout := os.Getenv("MCP_TOOL_CALL_TIMEOUT"); mcpTimeout != "" {
+		common.OptionMap[common.OptionMcpToolCallTimeout] = mcpTimeout
+	}
 
 	if err := InitOptionMapFromDB(); err != nil {
 		common.SysError(fmt.Sprintf("Failed to initialize option map from database: %v", err))
