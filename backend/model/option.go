@@ -59,15 +59,18 @@ func InitOptionMap() error {
 	common.OptionMap["EnableGzip"] = strconv.FormatBool(*common.EnableGzip)
 	common.OptionMap[common.OptionStdioServiceStartupStrategy] = common.StrategyStartOnBoot
 
-	// Load MCP tool call timeout from environment variable if set
-	if mcpTimeout := os.Getenv("MCP_TOOL_CALL_TIMEOUT"); mcpTimeout != "" {
-		common.OptionMap[common.OptionMcpToolCallTimeout] = mcpTimeout
-	}
-
+	// Load DB options first (lowest runtime priority among dynamic sources)
 	if err := InitOptionMapFromDB(); err != nil {
 		common.SysError(fmt.Sprintf("Failed to initialize option map from database: %v", err))
 		return err
 	}
+
+	// Environment variables override DB values (per documented precedence:
+	// defaults < config file < environment variables < flags)
+	if mcpTimeout := os.Getenv("MCP_TOOL_CALL_TIMEOUT"); mcpTimeout != "" {
+		common.OptionMap[common.OptionMcpToolCallTimeout] = mcpTimeout
+	}
+
 	return nil
 }
 

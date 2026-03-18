@@ -1758,7 +1758,10 @@ func addClientToolsToMCPServer(
 			toolName := tool.Name
 			mcpGoServer.AddTool(tool, func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				start := time.Now()
-				result, callErr := mcpGoClient.CallTool(callCtx, request)
+				// Apply configurable timeout for MCP tool calls, consistent with group handler
+				toolCallCtx, toolCallCancel := context.WithTimeout(callCtx, McpToolCallTimeout())
+				defer toolCallCancel()
+				result, callErr := mcpGoClient.CallTool(toolCallCtx, request)
 				duration := time.Since(start)
 				if callErr != nil {
 					trigger := fmt.Sprintf("tool call (%s)", toolName)
