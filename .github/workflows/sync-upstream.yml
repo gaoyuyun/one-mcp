@@ -1,0 +1,197 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Merge Upstream Main
+    runs-on: ubuntu-latest
+    outputs:
+      latest_tag: ${{ steps.detect_tag.outputs.latest_upstream_tag }}
+      should_release: ${{ steps.detect_tag.outputs.should_release }}
+      image_exists: ${{ steps.detect_tag.outputs.image_exists }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure Git identity
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+    - name: Configure upstream remote
+      run: |
+        if git remote get-url upstream >/dev/null 2>&1; then
+          git remote set-url upstream https://github.com/burugo/one-mcp.git
+        else
+          git remote add upstream https://github.com/burugo/one-mcp.git
+        fi
+
+        git fetch origin main --tags
+        git fetch upstream main:refs/remotes/upstream/main
+
+    - name: Merge upstream/main into main
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        git checkout main
+        git pull --ff-only origin main
+
+        BEFORE_SHA="$(git rev-parse HEAD)"
+        git merge --no-edit upstream/main
+        AFTER_SHA="$(git rev-parse HEAD)"
+
+        if [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
+          git push origin main
+        fi
+
+    - name: Detect latest upstream tag
+      id: detect_tag
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+
+        LATEST_UPSTREAM_TAG="$(
+          git ls-remote --tags --refs upstream 'v*' \
+            | awk '{print $2}' \
+            | sed 's#refs/tags/##' \
+            | sort -V \
+            | tail -n 1
+        )"
+
+        SHOULD_RELEASE=false
+        LATEST_UPSTREAM_TAG_COMMIT=""
+        RELEASE_EXISTS=false
+        IMAGE_EXISTS=false
+
+        if [ -n "$LATEST_UPSTREAM_TAG" ]; then
+          LATEST_UPSTREAM_TAG_COMMIT="$(
+            git ls-remote --tags upstream "${LATEST_UPSTREAM_TAG}^{}" | awk '{print $1}'
+          )"
+
+          if [ -z "$LATEST_UPSTREAM_TAG_COMMIT" ]; then
+            LATEST_UPSTREAM_TAG_COMMIT="$(
+              git ls-remote --tags --refs upstream "${LATEST_UPSTREAM_TAG}" | awk '{print $1}'
+            )"
+          fi
+
+          if curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${LATEST_UPSTREAM_TAG}" \
+            >/dev/null; then
+            RELEASE_EXISTS=true
+          fi
+
+          VERSION_NO_V="${LATEST_UPSTREAM_TAG#v}"
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/one-mcp"
+          if docker manifest inspect "${IMAGE_NAME}:${VERSION_NO_V}" >/dev/null 2>&1; then
+            IMAGE_EXISTS=true
+          fi
+        fi
+
+        if [ -z "$LATEST_UPSTREAM_TAG" ]; then
+          echo "No upstream release tag found."
+        elif [ "$RELEASE_EXISTS" = false ]; then
+          SHOULD_RELEASE=true
+        fi
+
+        echo "latest_upstream_tag=$LATEST_UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+        echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+        echo "image_exists=$IMAGE_EXISTS" >> "$GITHUB_OUTPUT"
+
+  docker:
+    name: Publish Synced Docker Image
+    runs-on: ubuntu-latest
+    needs: [sync]
+    if: needs.sync.outputs.should_release == 'true' && needs.sync.outputs.image_exists != 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: refs/tags/${{ needs.sync.outputs.latest_tag }}
+
+    - name: Resolve image tags
+      id: image_meta
+      shell: bash
+      run: |
+        VERSION="${{ needs.sync.outputs.latest_tag }}"
+        VERSION_NO_V="${VERSION#v}"
+        IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/one-mcp"
+
+        {
+          echo "version=$VERSION"
+          echo "image_name=$IMAGE_NAME"
+          echo "tags<<EOF"
+          echo "${IMAGE_NAME}:${VERSION}"
+          echo "${IMAGE_NAME}:${VERSION_NO_V}"
+          echo "${IMAGE_NAME}:latest"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.image_meta.outputs.tags }}
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.version=${{ steps.image_meta.outputs.version }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  release:
+    name: Create Synced Release
+    runs-on: ubuntu-latest
+    needs: [sync, docker]
+    if: always() && needs.sync.outputs.should_release == 'true' && (needs.docker.result == 'success' || needs.docker.result == 'skipped')
+    permissions:
+      contents: write
+
+    steps:
+    - name: Create GitHub release for synced upstream tag
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ needs.sync.outputs.latest_tag }}
+        name: Release ${{ needs.sync.outputs.latest_tag }}
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
