@@ -96,6 +96,14 @@ const (
 	OptionNetworkMcpHeartbeatJitter   = "NetworkMcpHeartbeatJitter"
 )
 
+// Network MCP initialization timeout (for SSE/StreamableHTTP upstream clients)
+// Controls the maximum duration for the initial connection + handshake with remote MCP services.
+// Values are parsed as time.Duration first (e.g. "60s", "2m"), then as seconds if duration parsing fails.
+// Default is 30 seconds.
+const (
+	OptionNetworkMcpInitTimeout = "NetworkMcpInitTimeout"
+)
+
 // MCP tool call timeout
 // Controls the maximum duration for MCP tool calls (e.g., for LLM-based MCP services that may take longer)
 // Values are parsed as time.Duration first (e.g. "120s", "5m"), then as seconds if duration parsing fails.

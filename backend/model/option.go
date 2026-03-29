@@ -70,6 +70,9 @@ func InitOptionMap() error {
 	if mcpTimeout := os.Getenv("MCP_TOOL_CALL_TIMEOUT"); mcpTimeout != "" {
 		common.OptionMap[common.OptionMcpToolCallTimeout] = mcpTimeout
 	}
+	if initTimeout := os.Getenv("NETWORK_MCP_INIT_TIMEOUT"); initTimeout != "" {
+		common.OptionMap[common.OptionNetworkMcpInitTimeout] = initTimeout
+	}
 
 	return nil
 }

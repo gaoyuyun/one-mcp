@@ -382,6 +382,12 @@ func networkHeartbeatJitter() time.Duration {
 	return parseDurationOption(common.OptionNetworkMcpHeartbeatJitter, 5*time.Second)
 }
 
+// networkMcpInitTimeout returns the configured timeout for network MCP client initialization (handshake).
+// Default is 30 seconds, configurable via NetworkMcpInitTimeout option.
+func networkMcpInitTimeout() time.Duration {
+	return parseDurationOption(common.OptionNetworkMcpInitTimeout, 30*time.Second)
+}
+
 // McpToolCallTimeout returns the configured timeout for MCP tool calls.
 // Default is 5 minutes, configurable via McpToolCallTimeout option.
 func McpToolCallTimeout() time.Duration {
@@ -1924,7 +1930,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 
 	// Build a background context we can cancel on shutdown, while still honoring caller cancellation during creation
 	bgCtx, cancel := context.WithCancel(context.Background())
-	handshakeCtx, handshakeCancel := context.WithTimeout(bgCtx, 20*time.Second)
+	handshakeCtx, handshakeCancel := context.WithTimeout(bgCtx, networkMcpInitTimeout())
 	handshakeDone := make(chan struct{})
 
 	go func() {
