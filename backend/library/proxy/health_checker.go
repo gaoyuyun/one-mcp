@@ -190,7 +190,8 @@ func (hc *HealthChecker) ForceCheckService(serviceID int64) (*ServiceHealth, err
 		return nil, ErrServiceNotRegistered
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Use networkMcpInitTimeout + 10s buffer so the outer deadline never fires before the inner handshake timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), networkMcpInitTimeout()+10*time.Second)
 	defer cancel()
 
 	startTimeForCheckAttempt := time.Now() // Record start time for the CheckHealth attempt
