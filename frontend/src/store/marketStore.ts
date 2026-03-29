@@ -767,7 +767,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         }
 
         try {
-            const response = await api.post(`/mcp_services/${numericServiceId}/health/check`) as APIResponse<any>;
+            const response = await api.post(`/mcp_services/${numericServiceId}/health/check`, {}, { timeout: 120000 } as any) as APIResponse<any>;
 
             if (response.success && response.data) {
                 toastEmitter.emit({

@@ -27,6 +27,15 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
+// networkMcpTransport returns an http.Transport based on DefaultTransport but with
+// TLSHandshakeTimeout derived from networkMcpInitTimeout(), so slow networks aren't
+// cut short by the default 10s hard limit.
+func networkMcpTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSHandshakeTimeout = networkMcpInitTimeout()
+	return t
+}
+
 // gzipDecompressTransport wraps an http.RoundTripper to automatically decompress gzip responses.
 // Go's http.Transport only auto-decompresses when the request does NOT have Accept-Encoding set.
 // When downstream clients set Accept-Encoding, we need to decompress ourselves for mcp-go to parse JSON.
@@ -1455,7 +1464,7 @@ func createActualMcpGoServerAndClientUncached(
 		// Use debug HTTP client to log response headers and detect gzip issues
 		debugHTTPClient := &http.Client{
 			Transport: &gzipDecompressTransport{
-				base:        http.DefaultTransport,
+				base:        networkMcpTransport(),
 				serviceName: serviceConfigForInstance.Name,
 			},
 		}
@@ -1491,7 +1500,7 @@ func createActualMcpGoServerAndClientUncached(
 		// Use debug HTTP client to log response headers and detect gzip issues
 		debugHTTPClient := &http.Client{
 			Transport: &gzipDecompressTransport{
-				base:        http.DefaultTransport,
+				base:        networkMcpTransport(),
 				serviceName: serviceConfigForInstance.Name,
 			},
 		}
